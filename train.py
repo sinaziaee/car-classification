@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 
@@ -10,87 +9,47 @@ import torchvision.models as models
 from torch import optim
 import json
 import torch.optim.lr_scheduler as lr_scheduler
+import os
 
 from tqdm import tqdm
 from utils import util_functions, metric_functions, custom_dataset
 
-train_labels_path = 'dataset\\train.csv'
-test_labels_path = 'dataset\\test.csv'
-train_images_dir = 'dataset\\train'
-test_images_dir = 'dataset\\test'
+train_labels_path = os.path.join('dataset', 'train.csv')
+test_labels_path = os.path.join('dataset', 'test.csv')
+
+train_images_dir = os.path.join('dataset', 'train')
+test_images_dir = os.path.join('dataset', 'test')
 
 train_labels_df = pd.read_csv(train_labels_path)
 test_labels_df = pd.read_csv(test_labels_path)
 
+train_transformer = transforms.Compose([transforms.Resize((400, 400)),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.RandomRotation(15),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+test_transformer = transforms.Compose([transforms.Resize((400, 400)),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
 ## Checking how many different classes we have
 no_classes = len(list(train_labels_df['label'].unique()))
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-dataset = custom_dataset.CustomDataset(images_dir=train_images_dir, df=train_labels_df, transforms=transform)
+
+dataset = custom_dataset.CustomDataset(images_dir=train_images_dir, 
+                                                df=train_labels_df, transforms=test_transformer)
+augmented_dataset = custom_dataset.CustomDataset(images_dir=train_images_dir, 
+                                                df=train_labels_df, transforms=train_transformer)
 # Define the sizes for the training and validation sets
 train_size = int(0.8 * len(dataset))  # 80% of the data for training
 val_size = len(dataset) - train_size   # Remaining 20% for validation
 
 # Use random_split to create training and validation sets
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+train_dataset = ConcatDataset([train_dataset, augmented_dataset])
 print(len(train_dataset), len(val_dataset))
-BATCH_SIZE = 16
+BATCH_SIZE = 128
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-def train_fn(data_loader, model, criterion, optimizer, device):
-    model.train()
-    total_loss = 0
-    
-    true_labels = []
-    predicted_labels = []
-    
-    for batch in data_loader:
-        images, labels = batch
-        images = images.to(device)
-        labels = labels.to(device)
-        # prediction
-        outputs = model(images)
-        # evaluating phase
-        true_labels.append(labels.detach().cpu().numpy().tolist())
-        predicted_labels.append(outputs.detach().cpu().numpy().tolist())
-        optimizer.zero_grad() 
-        loss = criterion(outputs, labels)
-            
-        total_loss += loss.item()
-        loss.backward()
-        optimizer.step()
-    
-    avg_loss = total_loss / len(data_loader)
-    acc, mac_precision, mic_precision, mac_recall, mic_recall, mac_f1, mic_f1, roc_auc_dict = metric_functions.calculate_metrics(true_labels, predicted_labels)
-    return avg_loss, acc
-
-def eval_fn(data_loader, model, criterion, device):
-    model.eval()
-    total_loss = 0
-    true_labels = []
-    predicted_labels = []
-    with torch.no_grad():
-        for batch in data_loader:
-            images, labels = batch
-            images = images.to(device)
-            labels = labels.to(device)
-                
-            outputs = model(images)
-            # evaluating phase
-            true_labels.append(labels.detach().cpu().numpy().tolist())
-            predicted_labels.append(outputs.detach().cpu().numpy().tolist())
-            loss = criterion(outputs, labels)
-
-            total_loss += loss.item()
-        
-        avg_loss = total_loss / len(data_loader)
-        acc, mac_precision, mic_precision, mac_recall, mic_recall, mac_f1, mic_f1, roc_auc_dict = metric_functions.calculate_metrics(true_labels, predicted_labels)
-    return avg_loss, acc
 
 def train_loop(n_epochs, model, optimizer, train_loader, valid_loader, device,
                                 criterion, scheduler=None):
@@ -103,11 +62,12 @@ def train_loop(n_epochs, model, optimizer, train_loader, valid_loader, device,
     valid_loss_list = []
     train_acc_list = []
     valid_acc_list = []
-
+    result_directory = 'results'
+    results_folder = util_functions.create_result_folder_by_date_and_time_folder(result_directory)
     for epoch in tqdm(range(n_epochs)):
-        train_loss, train_acc = train_fn(data_loader=train_loader, model=model, criterion=criterion, 
+        train_loss, train_acc = metric_functions.train_fn(data_loader=train_loader, model=model, criterion=criterion, 
                                 optimizer=optimizer, device=device)
-        valid_loss, valid_acc = eval_fn(data_loader=valid_loader, model=model, criterion=criterion,
+        valid_loss, valid_acc = metric_functions.eval_fn(data_loader=valid_loader, model=model, criterion=criterion,
                                         device=device)
         
         scheduler.step()
@@ -119,15 +79,13 @@ def train_loop(n_epochs, model, optimizer, train_loader, valid_loader, device,
         valid_loss_list.append(valid_loss)
         train_acc_list.append(train_acc)
         valid_acc_list.append(valid_acc)
-        results_folder = util_functions.create_result_folder_by_date_and_time_folder(base_path='results')
         if best_valid_loss > valid_loss:
             best_valid_loss = valid_loss
-            result_directory = 'results'
             torch.save(model.state_dict(), f'{results_folder}/best_model.pt')
             print('SAVED-MODEL')
         
         print(f'Epoch: {epoch+1}, Train Loss: {train_loss}, Train Accuracy: {train_acc}, Valid Loss: {valid_loss}, Valid Acc: {valid_acc}, lr: {current_lr}')
-        if epoch % 10 == 0:
+        if epoch % 2 == 0:
             util_functions.visualize_training(train_loss_list=train_loss_list, valid_loss_list=valid_loss_list,
                                             train_acc_list=train_acc_list, valid_acc_list=valid_acc_list, results_folder=results_folder)
             
@@ -144,9 +102,10 @@ def train_loop(n_epochs, model, optimizer, train_loader, valid_loader, device,
     return f'{results_folder}/best_model.pt'
 
 torch.cuda.empty_cache()
-device = torch.device('cuda')
+device = torch.device('cuda:0')
 # load pretrained dataset
-model = models.resnet50(pretrained=True)
+# model = models.resnet50(pretrained=True)
+model = models.resnet34(pretrained=True)
 # changing the last layer to our cause
 model.fc = nn.Linear(model.fc.in_features, no_classes)
 model.to(device)
@@ -156,6 +115,6 @@ optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 optimizer = optim.Adam(params=model.parameters(), lr=learning_rate)
 scheduler = lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.1)
 # scheduler = lr_scheduler.ReduceLROnPlateau()
-n_epochs = 21
+n_epochs = 51
 
-result_folder = train_loop(n_epochs, model, optimizer, val_loader, val_loader, device, criterion, scheduler=scheduler)
+result_folder = train_loop(n_epochs, model, optimizer, train_loader, val_loader, device, criterion, scheduler=scheduler)
