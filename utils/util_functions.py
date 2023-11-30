@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 import cv2 as cv
 import matplotlib.pyplot as plt
+import torch
 
 
 def create_folder(path):
@@ -49,3 +50,17 @@ def visualize_training(train_loss_list, valid_loss_list, train_acc_list=None, va
     fig[3].set_title("Valid Accuracy")
     plt.savefig(f'{results_folder}/train_result_fig.png')
     plt.show()
+    
+def calculate_mean_std_of_dataset(dataset):
+    mean_sum = torch.zeros(3)
+    std_sum = torch.zeros(3)
+
+    for image, _ in dataset:
+        mean = torch.mean(image, dim = (1, 2))
+        std = torch.std(image, dim = (1, 2))
+        mean_sum += mean
+        std_sum += std
+    num_samples = len(dataset)
+    mean = mean_sum / num_samples
+    std = std_sum / num_samples
+    return mean, std
