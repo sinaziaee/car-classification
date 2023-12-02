@@ -1,6 +1,12 @@
 from sklearn.metrics import roc_auc_score
 from sklearn import metrics
 import torch
+import pandas as pd
+from tqdm import tqdm
+from utils import util_functions, metric_functions
+import json
+import numpy as np
+
 
 def roc_auc_score_multiclass(actual_class, pred_class, average = "macro"):
     
@@ -102,3 +108,73 @@ def eval_fn(data_loader, model, criterion, device):
         accuracy = 100.0 * correct_classes / total_classes
         # acc, mac_precision, mic_precision, mac_recall, mic_recall, mac_f1, mic_f1, roc_auc_dict = metric_functions.calculate_metrics(true_labels, predicted_labels)
     return avg_loss, accuracy
+
+
+def inference(model, data_loader, device=torch.device('cpu')):
+    predicted_labels = []
+    model.eval()
+    with torch.no_grad():
+        for images in data_loader:
+            outputs = model(images)
+            _, generalized_outputs = torch.max(outputs.data, 1)
+            for generalized_output in generalized_outputs:
+                predicted_labels.append(generalized_output.item())
+    return predicted_labels
+
+def perform_inference(model, save_results_path, test_labels_path, test_loader):
+    results = inference(model, test_loader)
+    test_labels_df = pd.read_csv(test_labels_path)
+    test_labels_df['Predicted'] = results
+    test_labels_df.to_csv(save_results_path, index=False)
+    
+    
+def train_loop(n_epochs, model, optimizer, train_loader, valid_loader, device,
+                                criterion, scheduler=None):
+
+    model = model.to(device)
+        
+    best_valid_loss = np.Inf
+
+    train_loss_list = []
+    valid_loss_list = []
+    train_acc_list = []
+    valid_acc_list = []
+    result_directory = 'results'
+    results_folder = util_functions.create_result_folder_by_date_and_time_folder(result_directory)
+    for epoch in tqdm(range(n_epochs)):
+        train_loss, train_acc = metric_functions.train_fn(data_loader=train_loader, model=model, criterion=criterion, 
+                                optimizer=optimizer, device=device)
+        valid_loss, valid_acc = metric_functions.eval_fn(data_loader=valid_loader, model=model, criterion=criterion,
+                                        device=device)
+        if scheduler is not None:
+            scheduler.step()
+        
+        # Access the current learning rate
+        if scheduler is not None:
+            current_lr = scheduler.get_lr()[0]
+        
+        train_loss_list.append(train_loss)
+        valid_loss_list.append(valid_loss)
+        train_acc_list.append(train_acc)
+        valid_acc_list.append(valid_acc)
+        if best_valid_loss > valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(model.state_dict(), f'{results_folder}/best_model.pt')
+            print('SAVED-MODEL')
+        
+        print(f'Epoch: {epoch+1}, Train Loss: {train_loss}, Train Accuracy: {train_acc}, Valid Loss: {valid_loss}, Valid Acc: {valid_acc}')
+        if epoch % 5 == 0:
+            util_functions.visualize_training(train_loss_list=train_loss_list, valid_loss_list=valid_loss_list,
+                                            train_acc_list=train_acc_list, valid_acc_list=valid_acc_list, results_folder=results_folder)
+            
+        lists_dict = {
+            'train_loss_list': train_loss_list,
+            'train_acc_list': train_acc_list,
+            'valid_loss_list': valid_loss_list,
+            'valid_acc_list': valid_acc_list,
+        }
+
+        with open(f'{results_folder}/training_trend.json', 'w') as f:
+            json.dump(lists_dict, f)
+        
+    return f'{results_folder}/best_model.pt'

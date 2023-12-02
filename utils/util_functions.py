@@ -39,27 +39,41 @@ def check_no_of_each_class(train_labels_df):
     print(class_counts)
     
 def visualize_training(train_loss_list, valid_loss_list, train_acc_list=None, valid_acc_list=None, results_folder= None):
-    ax, fig = plt.subplots(1, 4, figsize=(16, 4))
-    fig[0].plot(train_loss_list)
-    fig[0].set_title("Train Loss")
-    fig[1].plot(valid_loss_list)
-    fig[1].set_title("Valid Loss")
-    fig[2].plot(train_acc_list)
-    fig[2].set_title("Train Accuracy")
-    fig[3].plot(valid_acc_list)
-    fig[3].set_title("Valid Accuracy")
+    fig, ax = plt.subplots(1, 2, figsize=(16, 4))
+    ax[0].plot(train_loss_list)
+    ax[0].plot(valid_loss_list)
+    ax[0].set_title("Train-Valid Loss")
+    ax[0].legend()
+    ax[1].plot(train_acc_list)
+    ax[1].set_title("Train Accuracy")
+    ax[1].plot(valid_acc_list)
+    ax[1].legend()
     plt.savefig(f'{results_folder}/train_result_fig.png')
+    plt.legend()
     plt.show()
     
-def calculate_mean_std_of_dataset(dataset):
+def calculate_mean_std_of_dataset(dataset, is_test=False, with_path=False):
     mean_sum = torch.zeros(3)
     std_sum = torch.zeros(3)
-
-    for image, _ in dataset:
-        mean = torch.mean(image, dim = (1, 2))
-        std = torch.std(image, dim = (1, 2))
-        mean_sum += mean
-        std_sum += std
+    if is_test == False:
+        if with_path == False:
+            for image, _ in dataset:
+                mean = torch.mean(image, dim = (1, 2))
+                std = torch.std(image, dim = (1, 2))
+                mean_sum += mean
+                std_sum += std
+        else:
+            for image, _, _ in dataset:
+                mean = torch.mean(image, dim = (1, 2))
+                std = torch.std(image, dim = (1, 2))
+                mean_sum += mean
+                std_sum += std            
+    else:
+        for image in dataset:
+            mean = torch.mean(image, dim = (1, 2))
+            std = torch.std(image, dim = (1, 2))
+            mean_sum += mean
+            std_sum += std
     num_samples = len(dataset)
     mean = mean_sum / num_samples
     std = std_sum / num_samples

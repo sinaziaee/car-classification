@@ -13,27 +13,43 @@ class CustomDataset(data.Dataset):
     @staticmethod
     def _load_input_image(path):
         with open(path, 'rb') as f:
-            # img = Image.open(f)
             img = Image.open(f).convert('RGB')
-            # return img.convert('L')
-            # img = cv.cvtColor(cv.imread(path, 3), cv.COLOR_BGR2RGB)
-            # img = transforms.ToTensor()(img)
             return img
 
-    def __init__(self, images_dir, df, transforms=None):
+    def __init__(self, images_dir, df, transforms=None, is_test=False, with_path=False):
         self.images_dir = images_dir
-        self.images_paths = sorted(img_path for img_path in os.listdir(images_dir) if self._isimage(img_path, self.IMG_EXTENSIONS))
-        self.labels = list(df['label'].values)
+        self.is_test = is_test
+        if self.is_test == False:
+            self.labels = []
+        self.images_paths = []
+        original_images_paths = [img_path for img_path in os.listdir(images_dir) if self._isimage(img_path, self.IMG_EXTENSIONS)]
+        for path in original_images_paths:
+            if is_test:
+                self.images_paths = [img_path for img_path in os.listdir(images_dir) if self._isimage(img_path, self.IMG_EXTENSIONS)]
+                pass
+            else:
+                label = df[df['id'] == f'train/{path}']['label'].item()
+                self.labels.append(label)
+                self.images_paths.append(f'{path}')
+                    
+        self.is_test = is_test
         self.transforms = transforms
+        self.with_path = with_path
         
     def __getitem__(self, idx):
         img = self._load_input_image(os.path.join(self.images_dir, self.images_paths[idx]))
-        lbl = self.labels[idx]
-        
+        if self.is_test == False:
+            lbl = self.labels[idx]
         if self.transforms is not None:
             img = self.transforms(img)
-        
-        return img, lbl
+        if self.is_test == False:
+            if self.with_path == False:
+                return img, lbl
+            else:
+                return img, lbl, os.path.join(self.images_dir, self.images_paths[idx])
+        else:
+            # print(os.path.join(self.images_dir, self.images_paths[idx]))
+            return img
 
     def __len__(self):
         return len(self.images_paths)
