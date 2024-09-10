@@ -1,7 +1,9 @@
 # Introduction:
 In the following code we will perform a multiclass classification task on a Stanford car dataset with the help of transfer learning.
 
-## What we will learn?
+![Dataset](https://github.com/sinaziaee/car-classification/raw/master/Dataset.png)
+
+## What we did?
 1. Multi-Class classification
 2. Transfer Learning
 3. Resnet model architecture
